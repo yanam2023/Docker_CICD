@@ -1,0 +1,58 @@
+name: Build and Deploy to EC2
+
+on:
+  push:
+    branches:
+     - main  # or your default branch
+  
+
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+
+   
+     
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+  
+    - name: Build and tag Docker image
+      run: |
+        sudo -S docker build -t mywebsite08 .
+        sudo -S docker save mywebsite08:latest | gzip > mywebsite08.tar.gz
+   
+
+    - name: Transfer Docker image to EC2
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        HOST: ${{ secrets.HOST }}
+      run: |
+        # Setup SSH key and permissions
+        mkdir -p ~/.ssh
+        echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+        
+        # Transfer image using scp
+        scp -i ~/.ssh/id_rsa -P 22 mywebsite08.tar.gz ubuntu@$HOST:/tmp
+
+    - name: Deploy to EC2
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        HOST: ${{ secrets.HOST }}
+      run: |
+        # Setup SSH key and permissions
+        mkdir -p ~/.ssh
+        echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+        # SSH and Docker commands to run on EC2
+        ssh -i ~/.ssh/id_rsa ubuntu@$HOST '
+          sudo -S docker load < /tmp/mywebsite08.tar.gz
+          sudo -S docker stop mywebsite08 || true
+          sudo -S docker rm mywebsite08 || true
+          sudo -S docker run -itd -p 8082:80 mywebsite08:latest
+        '
